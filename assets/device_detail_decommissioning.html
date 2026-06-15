@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Matter Home - Virtual CT Light</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Metropolis:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body { font-family: 'Metropolis', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        
+        /* Custom Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 32px;
+            width: 32px;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            margin-top: -12px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            border: 2px solid rgba(255,255,255,0.8);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        
+        /* Brightness Track */
+        #brightness-slider::-webkit-slider-runnable-track {
+            background: linear-gradient(to right, #2e3541, #adc6ff);
+        }
+        
+        /* Color Temp Track */
+        #temp-slider::-webkit-slider-runnable-track {
+            background: linear-gradient(to right, #60a5fa, #ffffff, #fbbf24);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-secondary-fixed-variant": "#005321",
+                        "tertiary": "#ffb95f",
+                        "on-tertiary-fixed": "#2a1700",
+                        "surface-container": "#19202b",
+                        "background": "#0f0f0f",
+                        "surface-container-low": "#151c27",
+                        "primary-container": "#4d8eff",
+                        "on-surface-variant": "#c2c6d6",
+                        "surface-variant": "#2e3541",
+                        "inverse-on-surface": "#2a313d",
+                        "secondary-fixed": "#6bff8f",
+                        "secondary-container": "#00b954",
+                        "error": "#ef4444",
+                        "surface-container-lowest": "#070e19",
+                        "on-error": "#690005",
+                        "outline": "#8c909f",
+                        "inverse-primary": "#005ac2",
+                        "cool-spectrum": "#60a5fa",
+                        "on-primary-container": "#00285d",
+                        "primary": "#adc6ff",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "on-error-container": "#ffdad6",
+                        "on-primary-fixed": "#001a42",
+                        "surface-elevated": "#242424",
+                        "surface": "#0c141f",
+                        "secondary": "#4ae176",
+                        "tertiary-container": "#ca8100",
+                        "on-secondary-fixed": "#002109",
+                        "on-tertiary-container": "#3e2400",
+                        "warm-spectrum": "#fbbf24",
+                        "surface-container-highest": "#2e3541",
+                        "on-background": "#dce2f3",
+                        "outline-variant": "#424754",
+                        "on-tertiary": "#472a00",
+                        "on-secondary-container": "#004119",
+                        "surface-tint": "#adc6ff",
+                        "surface-bright": "#323946",
+                        "error-container": "#93000a",
+                        "tertiary-fixed": "#ffddb8",
+                        "surface-container-high": "#232a36",
+                        "on-primary-fixed-variant": "#004395",
+                        "surface-card": "#1a1a1a",
+                        "on-primary": "#002e6a",
+                        "secondary-fixed-dim": "#4ae176",
+                        "surface-dim": "#0c141f",
+                        "on-surface": "#dce2f3",
+                        "primary-fixed-dim": "#adc6ff",
+                        "primary-fixed": "#d8e2ff",
+                        "inverse-surface": "#dce2f3",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "on-secondary": "#003915"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "gutter-mobile": "0.75rem",
+                        "margin-mobile": "1rem",
+                        "stack-md": "1rem",
+                        "touch-min": "44px",
+                        "stack-sm": "0.5rem"
+                    },
+                    fontFamily: {
+                        "body-md": ["Metropolis"],
+                        "headline-md": ["Metropolis"],
+                        "data-numeric": ["Metropolis"],
+                        "headline-lg": ["Metropolis"],
+                        "label-md": ["Metropolis"],
+                        "label-sm": ["Metropolis"],
+                        "body-lg": ["Metropolis"]
+                    },
+                    fontSize: {
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "data-numeric": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "label-sm": ["11px", { "lineHeight": "14px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col pb-24">
+<!-- TopAppBar -->
+<header class="bg-background/80 backdrop-blur-md flex justify-between items-center w-full px-margin-mobile h-14 z-50 sticky top-0">
+<button class="text-primary hover:bg-surface-variant/50 transition-colors p-2 rounded-full flex items-center justify-center w-touch-min h-touch-min active:scale-95 duration-200">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
+</button>
+<div class="font-headline-lg text-headline-lg font-bold text-primary">Virtual CT Light</div>
+<button class="text-primary hover:bg-surface-variant/50 transition-colors p-2 rounded-full flex items-center justify-center w-touch-min h-touch-min active:scale-95 duration-200" title="Refresh Connection">
+<span class="material-symbols-outlined">refresh</span>
+</button><button class="text-primary hover:bg-surface-variant/50 transition-colors p-2 rounded-full flex items-center justify-center w-touch-min h-touch-min active:scale-95 duration-200">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">more_vert</span>
+</button>
+</header><div class="bg-error-container text-on-error-container px-margin-mobile py-2 text-center font-label-md flex items-center justify-center gap-2" id="offline-banner">
+<span class="material-symbols-outlined text-[18px]">cloud_off</span>
+  Device Offline - Commands will resume once reconnected.
+</div>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-margin-mobile pt-stack-md flex flex-col gap-stack-md">
+<!-- Device Header & Main Toggle -->
+<section class="bg-surface-card rounded-xl p-4 shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex justify-between items-center">
+<div>
+<h1 class="font-headline-md text-headline-md text-on-surface">Living Room Overhead</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">lightbulb</span>
+                    Color Temperature Light
+                </p>
+</div>
+<button class="w-14 h-8 bg-primary rounded-full relative transition-colors duration-200 shadow-[inset_0_2px_4px_rgba(0,0,0,0.2)] flex items-center p-1" id="mainToggle">
+<div class="w-6 h-6 bg-surface-card rounded-full shadow-sm transform translate-x-6 transition-transform duration-200" id="toggleThumb"></div>
+</button>
+</section>
+<!-- Brightness Section -->
+<section class="bg-surface-card rounded-xl p-4 shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex flex-col gap-4 opacity-50 relative">
+<div class="flex justify-between items-center">
+<h2 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Brightness</h2>
+<span class="font-data-numeric text-data-numeric text-primary" id="brightnessLabel">85%</span>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-touch-min h-touch-min rounded-full bg-surface-variant flex items-center justify-center text-on-surface hover:bg-surface-bright transition-colors">
+<span class="material-symbols-outlined">remove</span>
+</button>
+<input class="flex-1" id="brightness-slider" max="254" min="1" type="range" value="215"/>
+<button class="w-touch-min h-touch-min rounded-full bg-surface-variant flex items-center justify-center text-on-surface hover:bg-surface-bright transition-colors">
+<span class="material-symbols-outlined">add</span>
+</button>
+</div>
+<div class="absolute inset-0 z-10 flex items-center justify-center cursor-not-allowed" title="Establishing session..."></div></section>
+<!-- Color Temperature Section -->
+<section class="bg-surface-card rounded-xl p-4 shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex flex-col gap-4 opacity-50 relative">
+<div class="flex justify-between items-center">
+<h2 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Color Temperature</h2>
+<span class="font-data-numeric text-data-numeric text-primary" id="tempLabel">4200K</span>
+</div>
+<div class="py-2">
+<input class="w-full" id="temp-slider" max="6500" min="2000" type="range" value="4200"/>
+</div>
+<div class="flex justify-between gap-2 mt-2">
+<button class="flex-1 py-2 rounded-lg bg-surface-variant hover:bg-surface-bright text-on-surface font-label-sm text-label-sm transition-colors border border-outline-variant/30">
+                    Relax (2700K)
+                </button>
+<button class="flex-1 py-2 rounded-lg bg-primary/20 border border-primary/50 text-primary font-label-sm text-label-sm transition-colors shadow-[0_0_8px_rgba(173,198,255,0.2)]">
+                    Read (4000K)
+                </button>
+<button class="flex-1 py-2 rounded-lg bg-surface-variant hover:bg-surface-bright text-on-surface font-label-sm text-label-sm transition-colors border border-outline-variant/30">
+                    Focus (6500K)
+                </button>
+</div>
+<div class="absolute inset-0 z-10 flex items-center justify-center cursor-not-allowed" title="Establishing session..."></div></section>
+<!-- Power Metrics Bento -->
+<section class="grid grid-cols-3 gap-gutter-mobile">
+<div class="bg-surface-card rounded-xl p-3 shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex flex-col items-center justify-center text-center">
+<span class="material-symbols-outlined text-tertiary mb-1" style="font-variation-settings: 'FILL' 0;">bolt</span>
+<span class="font-data-numeric text-data-numeric text-on-surface">104.5</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-1">Watts</span>
+</div>
+<div class="bg-surface-card rounded-xl p-3 shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex flex-col items-center justify-center text-center">
+<span class="material-symbols-outlined text-cool-spectrum mb-1" style="font-variation-settings: 'FILL' 0;">electrical_services</span>
+<span class="font-data-numeric text-data-numeric text-on-surface">229.1</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-1">Volts</span>
+</div>
+<div class="bg-surface-card rounded-xl p-3 shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex flex-col items-center justify-center text-center">
+<span class="material-symbols-outlined text-secondary mb-1" style="font-variation-settings: 'FILL' 0;">electric_meter</span>
+<span class="font-data-numeric text-data-numeric text-on-surface">0.456</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-1">Amps</span>
+</div>
+</section><button class="w-full mt-stack-md bg-surface-container-high hover:bg-surface-bright p-4 rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex items-center justify-between transition-colors duration-200 group active:scale-[0.98]">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">insights</span>
+</div>
+<div class="text-left">
+<h3 class="font-headline-md text-body-lg font-semibold text-on-surface">Energy Monitoring</h3>
+<p class="font-body-md text-label-md text-on-surface-variant">View detailed usage and trends</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">chevron_right</span>
+</button>
+<section class="mt-8 mb-4 flex flex-col items-center gap-2">
+<button class="w-full h-touch-min bg-error-container text-on-error-container rounded-xl flex items-center justify-center gap-2 font-label-md uppercase tracking-wider active:scale-95 transition-transform duration-200 shadow-sm">
+<span class="material-symbols-outlined text-[20px]">link_off</span>
+    Decommission Device
+  </button>
+<p class="text-label-sm text-on-surface-variant text-center px-4">
+    This will remove the device from the Matter fabric and delete all stored data.
+  </p>
+</section></main>
+<script>
+        // Simple Interaction Logic
+        const mainToggle = document.getElementById('mainToggle');
+        const toggleThumb = document.getElementById('toggleThumb');
+        let isOn = true;
+
+        mainToggle.addEventListener('click', () => {
+            isOn = !isOn;
+            if(isOn) {
+                mainToggle.classList.replace('bg-surface-variant', 'bg-primary');
+                toggleThumb.classList.add('translate-x-6');
+            } else {
+                mainToggle.classList.replace('bg-primary', 'bg-surface-variant');
+                toggleThumb.classList.remove('translate-x-6');
+            }
+        });
+
+        // Sliders
+        const brightSlider = document.getElementById('brightness-slider');
+        const brightLabel = document.getElementById('brightnessLabel');
+        brightSlider.addEventListener('input', (e) => {
+            const pct = Math.round((e.target.value / 254) * 100);
+            brightLabel.textContent = `${pct}%`;
+        });
+
+        const tempSlider = document.getElementById('temp-slider');
+        const tempLabel = document.getElementById('tempLabel');
+        tempSlider.addEventListener('input', (e) => {
+            tempLabel.textContent = `${e.target.value}K`;
+        });
+    </script>
+</body></html>
