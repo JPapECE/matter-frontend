@@ -112,15 +112,19 @@ export function DashboardScreen({ navigation }: Props) {
   // and we revert the UI. But we still let the user try — the device might just
   // have a stale "offline" status from the last poll.
   const handleToggle = useCallback(async (device: Device) => {
-    const optimisticOn = !device.on;
+    const turnToOn = !device.on;
 
     // Optimistic update — immediate UI feedback
     setDevices(prev => prev.map(d =>
-      d.nodeId === device.nodeId ? { ...d, on: optimisticOn } : d
+      d.nodeId === device.nodeId ? { ...d, on: turnToOn } : d
     ));
 
     try {
-      await api.toggle(device.nodeId);
+      if (turnToOn) {
+        await api.turnOn(device.nodeId);
+      } else {
+        await api.turnOff(device.nodeId);
+      }
     } catch {
       // Revert on failure
       setDevices(prev => prev.map(d =>

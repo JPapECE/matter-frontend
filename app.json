@@ -25,7 +25,10 @@
     },
     "extra": {
       "serverUrl": "https://matter-cloud-api-production.up.railway.app",
-      "apiKey": "91a2235d6bd14ca29206795c4ac00784c2c2fa7010231a8c21b8822b0a08def6"
+      "apiKey": "91a2235d6bd14ca29206795c4ac00784c2c2fa7010231a8c21b8822b0a08def6",
+      "eas": {
+        "projectId": "c55606fd-ada1-4567-93a9-74c051d00457"
+      }
     }
   }
 }

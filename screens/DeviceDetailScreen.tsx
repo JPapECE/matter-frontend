@@ -241,7 +241,11 @@ export function DeviceDetailScreen({ navigation, route }: Props) {
     }, 3000);
 
     try {
-      await api.toggle(nodeId);
+      if (next) {
+        await api.turnOn(nodeId);
+      } else {
+        await api.turnOff(nodeId);
+      }
       clearTimeout(revertTimer.current!);
     } catch {
       clearTimeout(revertTimer.current!);
