@@ -41,6 +41,8 @@ export interface PowerReading {
   activePower: number | null;
   voltage: number | null;
   current: number | null;
+  frequency: number | null;
+  powerFactor: number | null;
   timestamp: string;
 }
 
@@ -59,6 +61,8 @@ export interface EnergyRecord {
   activePower: number | null;
   voltage: number | null;
   current: number | null;
+  frequency: number | null;
+  powerFactor: number | null;
   cumulativeEnergy: number | null;
   periodicEnergy: number | null;
   cumulativeEnergyExported: number | null;

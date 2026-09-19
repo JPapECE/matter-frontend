@@ -35,6 +35,7 @@ import { Colors, Typography, Spacing, Radius, Shadows } from '../theme';
 import { api }           from '../api/client';
 import { getWsUrl }      from '../api/config';
 import { useWebSocket }  from '../hooks/useWebSocket';
+import { METRICS_REGISTRY } from '../constants/metrics';
 import type {
   FullStatus, DeviceCapabilities, PowerReading, EnergyReading,
   WsEvent, WsStateChangeEvent, WsEnergySnapshotEvent,
@@ -77,6 +78,20 @@ export function DeviceDetailScreen({ navigation, route }: Props) {
   const [caps,     setCaps]     = useState<DeviceCapabilities | null>(null);
   const [power,    setPower]    = useState<PowerReading | null>(null);
   const [energy,   setEnergy]   = useState<EnergyReading | null>(null);
+  const [supportedMetrics, setSupportedMetrics] = useState<Record<string, boolean>>({});
+
+  const checkSupportedMetrics = useCallback((p: any, e?: any) => {
+    setSupportedMetrics(prev => {
+      const next = { ...prev };
+      Object.keys(METRICS_REGISTRY).forEach(key => {
+        const val = p?.[key] ?? e?.[key];
+        if (val !== null && val !== undefined) {
+          next[key] = true;
+        }
+      });
+      return next;
+    });
+  }, []);
 
   // CT state (Kelvin)
   const [ctKelvin, setCtKelvin] = useState<number>(4000);
@@ -127,6 +142,7 @@ export function DeviceDetailScreen({ navigation, route }: Props) {
         setCaps(capData);
         setPower(fullStatus.power);
         setEnergy(fullStatus.energy);
+        checkSupportedMetrics(fullStatus.power, fullStatus.energy);
 
         if (capData.hasColorTemperature) {
           const ctData = await api.getColorTemperature(nodeId);
@@ -223,6 +239,7 @@ export function DeviceDetailScreen({ navigation, route }: Props) {
       if (e.nodeId !== nodeId) return;
       setPower(e.power);
       setEnergy(e.energy);
+      checkSupportedMetrics(e.power, e.energy);
     }
   }, [nodeId]);
 
@@ -575,24 +592,29 @@ export function DeviceDetailScreen({ navigation, route }: Props) {
         {/* ── Power metrics bento ── */}
         {caps?.hasElectricalPower && (
           <View style={styles.bentoRow}>
-            <MetricTile
-              icon="lightning-bolt"
-              iconColor={Colors.tertiary}
-              value={power?.activePower?.toFixed(1) ?? '—'}
-              unit="Watts"
-            />
-            <MetricTile
-              icon="power-plug-outline"
-              iconColor={Colors.coolSpectrum}
-              value={power?.voltage?.toFixed(1) ?? '—'}
-              unit="Volts"
-            />
-            <MetricTile
-              icon="meter-electric-outline"
-              iconColor={Colors.secondary}
-              value={power?.current?.toFixed(3) ?? '—'}
-              unit="Amps"
-            />
+            {Object.keys(METRICS_REGISTRY)
+              .filter(key => key !== 'cumulativeEnergy') // energy is handled separately
+              .map(key => {
+                const metric = METRICS_REGISTRY[key];
+                if (!supportedMetrics[key]) return null;
+
+                const val = power?.[key as keyof PowerReading];
+                const displayVal = val !== null && val !== undefined
+                  ? typeof val === 'number'
+                    ? val.toFixed(key === 'current' || key === 'powerFactor' ? 3 : 1)
+                    : String(val)
+                  : '—';
+
+                return (
+                  <MetricTile
+                    key={key}
+                    icon={metric.icon}
+                    iconColor={metric.color}
+                    value={displayVal}
+                    unit={metric.unit}
+                  />
+                );
+              })}
           </View>
         )}
 

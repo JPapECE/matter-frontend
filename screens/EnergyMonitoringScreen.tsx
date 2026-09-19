@@ -30,7 +30,8 @@ import { Colors, Typography, Spacing, Radius, Shadows } from '../theme';
 import { api } from '../api/client';
 import { getWsUrl } from '../api/config';
 import { useWebSocket } from '../hooks/useWebSocket';
-import type { WsEvent, WsEnergySnapshotEvent, EnergyRecord } from '../types';
+import { METRICS_REGISTRY } from '../constants/metrics';
+import type { WsEvent, WsEnergySnapshotEvent, EnergyRecord, DeviceCapabilities, PowerReading, EnergyReading } from '../types';
 
 interface Props {
   navigation: any;
@@ -45,47 +46,47 @@ export function EnergyMonitoringScreen({ navigation, route }: Props) {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
+  const [caps, setCaps] = useState<DeviceCapabilities | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
 
   // Shimmer / Fade loading state for charts on range switch
   const [shimmering, setShimmering] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(1)).current;
 
-  // Real-time & snapshot metrics
-  const [activePower, setActivePower] = useState<number | null>(105.8);
-  const [totalEnergy, setTotalEnergy] = useState<number | null>(3.126);
-  const [voltage, setVoltage] = useState<number | null>(229.1);
-  const [current, setCurrent] = useState<number | null>(0.452);
-
-  // History stats
-  const [minPower, setMinPower] = useState<number>(0.2);
-  const [avgPower, setAvgPower] = useState<number>(42.8);
-  const [maxPower, setMaxPower] = useState<number>(108.0);
-
-  const [minVoltage, setMinVoltage] = useState<number>(228.4);
-  const [avgVoltage, setAvgVoltage] = useState<number>(230.2);
-  const [maxVoltage, setMaxVoltage] = useState<number>(232.1);
-
-  const [minCurrent, setMinCurrent] = useState<number>(0.002);
-  const [avgCurrent, setAvgCurrent] = useState<number>(0.180);
-  const [maxCurrent, setMaxCurrent] = useState<number>(0.480);
-
-  const [startEnergy, setStartEnergy] = useState<number>(0);
-  const [rateEnergy, setRateEnergy] = useState<number>(130);
-
-  // SVG Chart path states
-  const [powerPath, setPowerPath] = useState({ line: '', fill: '' });
-  const [voltagePath, setVoltagePath] = useState({ line: '', fill: '' });
-  const [energyPath, setEnergyPath] = useState({ line: '', fill: '' });
-  const [currentPath, setCurrentPath] = useState({ line: '', fill: '' });
+  // Dynamic metrics state
+  const [metrics, setMetrics] = useState<Record<string, number | null>>({});
+  const [supportedMetrics, setSupportedMetrics] = useState<Record<string, boolean>>({});
+  const [metricPaths, setMetricPaths] = useState<Record<string, { line: string; fill: string }>>({});
+  const [metricStats, setMetricStats] = useState<Record<string, { min: number; max: number; avg: number }>>({});
 
   // Hairline state for Power Chart
   const [hairlineX, setHairlineX] = useState<number | null>(null);
   const [hoveredPower, setHoveredPower] = useState<number | null>(null);
   const chartWidth = Dimensions.get('window').width - 32; // card padding
 
+  // ── Derived capability flags ──────────────────────────────────────────────
+  const hasPower  = caps?.hasElectricalPower  ?? false;
+  const hasEnergy = caps?.hasElectricalEnergy ?? false;
+
+  const checkSupportedMetrics = useCallback((p: any, e?: any) => {
+    setSupportedMetrics(prev => {
+      const next = { ...prev };
+      Object.keys(METRICS_REGISTRY).forEach(key => {
+        const val = p?.[key] ?? e?.[key];
+        if (val !== null && val !== undefined) {
+          next[key] = true;
+        }
+      });
+      return next;
+    });
+  }, []);
+
   // ── Load historical stats and records ─────────────────────────────────────
-  const loadHistory = useCallback(async (range: TimeRange) => {
+  const loadHistory = useCallback(async (range: TimeRange, capabilities?: DeviceCapabilities | null) => {
+    const effectiveCaps = capabilities ?? caps;
+    // Nothing to load if device supports neither cluster
+    if (!effectiveCaps?.hasElectricalPower && !effectiveCaps?.hasElectricalEnergy) return;
+
     // Calculate cutoff date string
     const nowMs = Date.now();
     let duration = 24 * 3600 * 1000;
@@ -101,72 +102,104 @@ export function EnergyMonitoringScreen({ navigation, route }: Props) {
         api.getEnergyStats(nodeId, since),
       ]);
 
-      // If we have actual database records, parse them
+      // Only use real DB records — no mock fallback
       if (history && history.length >= 2) {
         processChartData(history, stats);
-      } else {
-        // Fall back to beautiful mock waves if database doesn't have readings yet
-        generateMockHistory(range);
       }
+      // If no history yet, leave chart paths empty (they will show nothing)
     } catch (err) {
       console.error('[EnergyMonitoring] Error loading history:', err);
-      // Fail-safe: generate mock waves
-      generateMockHistory(range);
     }
-  }, [nodeId]);
+  }, [nodeId, caps]);
 
-  // Initial load
+  // Initial load: fetch capabilities first, then history
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await loadHistory(timeRange);
-      setLoading(false);
+      try {
+        const capData = await api.getCapabilities(nodeId);
+        setCaps(capData);
+
+        // Also seed real-time values from the live snapshot
+        if (capData.hasElectricalPower || capData.hasElectricalEnergy) {
+          try {
+            const fullStatus = await api.getFullStatus(nodeId);
+            const newMetrics: Record<string, number | null> = {};
+            Object.keys(METRICS_REGISTRY).forEach(key => {
+              const val = (fullStatus.power as any)?.[key] ?? (fullStatus.energy as any)?.[key];
+              if (val !== null && val !== undefined) {
+                const scale = METRICS_REGISTRY[key].scale ?? 1;
+                newMetrics[key] = Number(val) * scale;
+              }
+            });
+            setMetrics(newMetrics);
+            checkSupportedMetrics(fullStatus.power, fullStatus.energy);
+          } catch { /* ignore — WS will fill values shortly */ }
+
+          await loadHistory(timeRange, capData);
+        }
+      } catch (err) {
+        console.error('[EnergyMonitoring] Error fetching capabilities:', err);
+      } finally {
+        setLoading(false);
+      }
     })();
-  }, [nodeId, timeRange, loadHistory]);
+  }, [nodeId]);
+
+  // Reload history when time range changes
+  useEffect(() => {
+    if (caps) {
+      triggerShimmer(timeRange);
+    }
+  }, [timeRange]);
 
   // ── Process Database History ───────────────────────────────────────────────
   const processChartData = (records: EnergyRecord[], stats: any) => {
-    // Sort chronological
     const sorted = [...records].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
     const length = sorted.length;
+    if (length === 0) return;
 
-    // Map current values from latest record
     const latest = sorted[length - 1];
-    setActivePower(latest.activePower ?? 0);
-    setTotalEnergy((latest.cumulativeEnergy ?? 0) / 1000); // Wh to kWh
-    setVoltage(latest.voltage ?? 0);
-    setCurrent(latest.current ?? 0);
 
-    // Map stats from backend API
-    setMinPower(stats.minPower ?? 0);
-    setMaxPower(stats.maxPower ?? 0);
-    setAvgPower(stats.avgPower ?? 0);
+    const newMetrics = { ...metrics };
+    const newSupported = { ...supportedMetrics };
+    const newPaths: Record<string, { line: string; fill: string }> = {};
+    const newStats: Record<string, { min: number; max: number; avg: number }> = {};
 
-    // Compute Volts / Amps min/max/avg from the records set
-    const vVals = sorted.map(r => r.voltage).filter(v => v !== null) as number[];
-    const cVals = sorted.map(r => r.current).filter(c => c !== null) as number[];
-    const eVals = sorted.map(r => r.cumulativeEnergy).filter(e => e !== null) as number[];
+    Object.keys(METRICS_REGISTRY).forEach(key => {
+      let val = latest[key as keyof EnergyRecord] as number | null;
+      if (val !== null && val !== undefined) {
+        const scale = METRICS_REGISTRY[key].scale ?? 1;
+        newMetrics[key] = Number(val) * scale;
+      }
 
-    if (vVals.length > 0) {
-      setMinVoltage(Math.min(...vVals));
-      setMaxVoltage(Math.max(...vVals));
-      setAvgVoltage(vVals.reduce((a, b) => a + b, 0) / vVals.length);
-    }
-    if (cVals.length > 0) {
-      setMinCurrent(Math.min(...cVals));
-      setMaxCurrent(Math.max(...cVals));
-      setAvgCurrent(cVals.reduce((a, b) => a + b, 0) / cVals.length);
-    }
-    if (eVals.length > 0) {
-      setStartEnergy(eVals[0]);
-      setRateEnergy(Math.round(((eVals[eVals.length - 1] - eVals[0]) / (vVals.length || 1)) * 360)); // rough estimate
-    }
+      const vals = sorted
+        .map(r => {
+          const v = r[key as keyof EnergyRecord] as number | null;
+          if (v !== null && v !== undefined) {
+            const scale = METRICS_REGISTRY[key].scale ?? 1;
+            return Number(v) * scale;
+          }
+          return null;
+        })
+        .filter(v => v !== null) as number[];
 
-    // Generate paths (viewBox is 100 x 40)
-    setPowerPath(generateSvgPath(sorted.map(r => r.activePower ?? 0)));
-    setVoltagePath(generateSvgPath(sorted.map(r => r.voltage ?? 230)));
-    setEnergyPath(generateSvgPath(sorted.map(r => r.cumulativeEnergy ?? 0)));
-    setCurrentPath(generateSvgPath(sorted.map(r => r.current ?? 0)));
+      if (vals.length > 0) {
+        newSupported[key] = true;
+        
+        const minVal = Math.min(...vals);
+        const maxVal = Math.max(...vals);
+        const avgVal = vals.reduce((a, b) => a + b, 0) / vals.length;
+        
+        newStats[key] = { min: minVal, max: maxVal, avg: avgVal };
+        newPaths[key] = generateSvgPath(vals);
+      }
+    });
+
+    setMetrics(newMetrics);
+    setSupportedMetrics(newSupported);
+    setMetricPaths(newPaths);
+    setMetricStats(newStats);
   };
 
   // Helper to convert array of numbers into SVG line & fill paths
@@ -191,79 +224,34 @@ export function EnergyMonitoringScreen({ navigation, route }: Props) {
     return { line: linePath, fill: fillPath };
   };
 
-  // ── Generate Mock History (Fall-back or default view) ─────────────────────
-  const generateMockHistory = (range: TimeRange) => {
-    // Generate 30 data points representing standard appliance cycle
-    const pointsCount = 30;
-    const mockPower: number[] = [];
-    const mockVoltage: number[] = [];
-    const mockEnergy: number[] = [];
-    const mockCurrent: number[] = [];
 
-    let cumEnergy = 1200; // Wh start
-    for (let i = 0; i < pointsCount; i++) {
-      // Create fluctuating appliance consumption curve
-      const angle = (i / pointsCount) * Math.PI * 2.5;
-      const powerVal = 40 + Math.sin(angle) * 30 + Math.cos(angle * 2) * 15 + (i > 15 ? 18 : 0);
-      const voltVal = 229 + Math.sin(angle * 4) * 1.2 + Math.random() * 0.3;
-      const currVal = powerVal / voltVal;
-      cumEnergy += powerVal * 0.15; // accumulator
-
-      mockPower.push(powerVal);
-      mockVoltage.push(voltVal);
-      mockEnergy.push(cumEnergy);
-      mockCurrent.push(currVal);
-    }
-
-    setActivePower(mockPower[pointsCount - 1]);
-    setTotalEnergy(cumEnergy / 1000);
-    setVoltage(mockVoltage[pointsCount - 1]);
-    setCurrent(mockCurrent[pointsCount - 1]);
-
-    setMinPower(Math.min(...mockPower));
-    setMaxPower(Math.max(...mockPower));
-    setAvgPower(mockPower.reduce((a, b) => a + b, 0) / pointsCount);
-
-    setMinVoltage(Math.min(...mockVoltage));
-    setMaxVoltage(Math.max(...mockVoltage));
-    setAvgVoltage(mockVoltage.reduce((a, b) => a + b, 0) / pointsCount);
-
-    setMinCurrent(Math.min(...mockCurrent));
-    setMaxCurrent(Math.max(...mockCurrent));
-    setAvgCurrent(mockCurrent.reduce((a, b) => a + b, 0) / pointsCount);
-
-    setStartEnergy(1200);
-    setRateEnergy(Math.round((cumEnergy - 1200) / (pointsCount * 0.15)));
-
-    setPowerPath(generateSvgPath(mockPower));
-    setVoltagePath(generateSvgPath(mockVoltage));
-    setEnergyPath(generateSvgPath(mockEnergy));
-    setCurrentPath(generateSvgPath(mockCurrent));
-  };
 
   // ── WebSocket events ───────────────────────────────────────────────────────
   const handleWsEvent = useCallback((event: WsEvent) => {
     if (event.event === 'energy_snapshot') {
       const e = event as WsEnergySnapshotEvent;
       if (e.nodeId !== nodeId) return;
-      if (e.power) {
-        if (e.power.activePower !== null) setActivePower(e.power.activePower);
-        if (e.power.voltage !== null) setVoltage(e.power.voltage);
-        if (e.power.current !== null) setCurrent(e.power.current);
-      }
-      if (e.energy) {
-        if (e.energy.cumulativeEnergy !== null) {
-          setTotalEnergy(e.energy.cumulativeEnergy / 1000); // Wh to kWh
-        }
-      }
+      
+      setMetrics(prev => {
+        const next = { ...prev };
+        Object.keys(METRICS_REGISTRY).forEach(key => {
+          const val = (e.power as any)?.[key] ?? (e.energy as any)?.[key];
+          if (val !== null && val !== undefined) {
+            const scale = METRICS_REGISTRY[key].scale ?? 1;
+            next[key] = Number(val) * scale;
+          }
+        });
+        return next;
+      });
+
+      checkSupportedMetrics(e.power, e.energy);
     }
-  }, [nodeId]);
+  }, [nodeId, checkSupportedMetrics]);
 
   useWebSocket({ url: getWsUrl(), nodeId, onEvent: handleWsEvent });
 
   // ── Shimmer loading animation ─────────────────────────────────────────────
   const triggerShimmer = (range: TimeRange) => {
-    setTimeRange(range);
     setShimmering(true);
 
     // Shimmer effect - dim down
@@ -293,12 +281,9 @@ export function EnergyMonitoringScreen({ navigation, route }: Props) {
     const percentX = (relativeX / chartWidth) * 100;
     setHairlineX(percentX);
 
-    // Approximate power reading matching the touch point
-    const range = maxPower - minPower;
-    const touchIndex = Math.round((relativeX / chartWidth) * 29); // 30 points
-    // Fallback lookup or generic formula
-    const value = minPower + (Math.sin(percentX / 10) * range * 0.4) + (range * 0.5);
-    setHoveredPower(Math.max(minPower, Math.min(maxPower, value)));
+    const stats = metricStats.activePower ?? { min: 0, max: 100, avg: 0 };
+    const range = stats.max - stats.min;
+    setHoveredPower(Math.max(stats.min, Math.min(stats.max, stats.min + (Math.sin(percentX / 10) * range * 0.4) + (range * 0.5))));
   };
 
   const handleTouchEnd = () => {
@@ -314,6 +299,10 @@ export function EnergyMonitoringScreen({ navigation, route }: Props) {
       </View>
     );
   }
+
+  // ── Render: unsupported state ─────────────────────────────────────────────
+  // Shown when caps have been fetched but neither cluster is present
+  const neitherSupported = caps !== null && !hasPower && !hasEnergy;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -334,224 +323,161 @@ export function EnergyMonitoringScreen({ navigation, route }: Props) {
         <View style={styles.headerBtn} />
       </View>
 
-      {/* ── Main Scroll View ── */}
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── Time Range Chips ── */}
-        <View style={styles.chipsContent}>
-          <View style={[styles.chip, styles.chipActive, { alignSelf: 'flex-start' }]}>
-            <Text style={[styles.chipLabel, styles.chipLabelActive]}>
-              24h
-            </Text>
-          </View>
+      {/* ── Unsupported device ── */}
+      {neitherSupported ? (
+        <View style={styles.unsupportedRoot}>
+          <MaterialSymbols name="power-plug-off" size={52} color={Colors.onSurfaceVariant} />
+          <Text style={styles.unsupportedTitle}>Not Supported</Text>
+          <Text style={styles.unsupportedBody}>
+            This device does not expose the Electrical Power Measurement or
+            Electrical Energy Measurement Matter clusters.
+          </Text>
         </View>
+      ) : (
+        /* ── Main Scroll View ── */
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ── Time Range Chips ── */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipsScroll}
+            contentContainerStyle={styles.chipsContent}
+          >
+            {(['24h', '12h', '6h', '1h'] as TimeRange[]).map(r => (
+              <TouchableOpacity
+                key={r}
+                style={[styles.chip, timeRange === r && styles.chipActive]}
+                onPress={() => setTimeRange(r)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.chipLabel, timeRange === r && styles.chipLabelActive]}>{r}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
-        {/* ── 2×2 Metric Grid ── */}
-        <View style={styles.gridContainer}>
-          {/* Active Power */}
-          <View style={styles.gridItem}>
-            <View style={styles.metricHeader}>
-              <MaterialSymbols name="flash" size={18} color={Colors.tertiary} />
-              <Text style={styles.metricTitle}>Active Power</Text>
+          {/* ── Metric Grid (only for supported attributes) ── */}
+          {Object.keys(METRICS_REGISTRY).some(key => supportedMetrics[key]) && (
+            <View style={styles.gridContainer}>
+              {Object.keys(METRICS_REGISTRY).map(key => {
+                const metric = METRICS_REGISTRY[key];
+                if (!supportedMetrics[key]) return null;
+
+                const val = metrics[key];
+                const displayVal = val !== null && val !== undefined
+                  ? typeof val === 'number'
+                    ? val.toFixed(key === 'current' || key === 'powerFactor' ? 3 : 1)
+                    : String(val)
+                  : '—';
+
+                const subtext = key === 'cumulativeEnergy' ? 'Cumulative' : 'Real-time';
+
+                return (
+                  <View key={key} style={styles.gridItem}>
+                    <View style={styles.metricHeader}>
+                      <MaterialSymbols name={metric.icon as any} size={18} color={metric.color} />
+                      <Text style={styles.metricTitle}>{metric.label}</Text>
+                    </View>
+                    <Text style={[styles.metricValue, { color: metric.color }]}>
+                      {displayVal} {metric.unit}
+                    </Text>
+                    <Text style={styles.metricTrend}>{subtext}</Text>
+                  </View>
+                );
+              })}
             </View>
-            <Text style={[styles.metricValue, { color: Colors.tertiary }]}>
-              {activePower !== null ? `${activePower.toFixed(1)} W` : '—'}
-            </Text>
-            <Text style={[styles.metricTrend, { color: Colors.secondary }]}>+2.4% vs prev</Text>
-          </View>
+          )}
 
-          {/* Total Energy */}
-          <View style={styles.gridItem}>
-            <View style={styles.metricHeader}>
-              <MaterialSymbols name="leaf" size={18} color={Colors.secondary} />
-              <Text style={styles.metricTitle}>Total Energy</Text>
-            </View>
-            <Text style={[styles.metricValue, { color: Colors.secondary }]}>
-              {totalEnergy !== null ? `${totalEnergy.toFixed(3)} kWh` : '—'}
-            </Text>
-            <Text style={styles.metricTrend}>Window delta: -0.5</Text>
-          </View>
+          {/* ── SVG Charts Stack ── */}
+          <Animated.View style={[styles.chartsStack, { opacity: shimmerAnim }]}>
+            {Object.keys(METRICS_REGISTRY).map(key => {
+              const metric = METRICS_REGISTRY[key];
+              if (!supportedMetrics[key]) return null;
 
-          {/* Voltage */}
-          <View style={styles.gridItem}>
-            <View style={styles.metricHeader}>
-              <MaterialSymbols name="power-plug-outline" size={18} color={Colors.coolSpectrum} />
-              <Text style={styles.metricTitle}>Voltage</Text>
-            </View>
-            <Text style={[styles.metricValue, { color: Colors.coolSpectrum }]}>
-              {voltage !== null ? `${voltage.toFixed(1)} V` : '—'}
-            </Text>
-            <Text style={styles.metricTrend}>±0.2V deviation</Text>
-          </View>
+              const val = metrics[key];
+              const displayVal = val !== null && val !== undefined
+                ? typeof val === 'number'
+                  ? val.toFixed(key === 'current' || key === 'powerFactor' ? 3 : 1)
+                  : String(val)
+                : '—';
 
-          {/* Current */}
-          <View style={styles.gridItem}>
-            <View style={styles.metricHeader}>
-              <MaterialSymbols name="sine-wave" size={18} color={Colors.primary} />
-              <Text style={styles.metricTitle}>Current</Text>
-            </View>
-            <Text style={[styles.metricValue, { color: Colors.primary }]}>
-              {current !== null ? `${current.toFixed(3)} A` : '—'}
-            </Text>
-            <Text style={styles.metricTrend}>+1.1% vs prev</Text>
-          </View>
-        </View>
+              const path = metricPaths[key];
 
-        {/* ── SVG Charts Stack ── */}
-        <Animated.View style={[styles.chartsStack, { opacity: shimmerAnim }]}>
-          {/* Active Power Chart */}
-          <View style={styles.chartCard}>
-            <View style={styles.chartHeader}>
-              <View>
-                <Text style={styles.chartLabel}>Power Consumption</Text>
-                <Text style={[styles.chartMetricType, { color: Colors.tertiary }]}>Active Power</Text>
-              </View>
-              <Text style={styles.chartLiveValue}>
-                {hoveredPower !== null ? `${Math.round(hoveredPower)} W` : `${Math.round(activePower ?? 0)} W`}
-              </Text>
-            </View>
+              return (
+                <View key={key} style={styles.chartCard}>
+                  <View style={styles.chartHeader}>
+                    <View>
+                      <Text style={styles.chartLabel}>{metric.chartLabel}</Text>
+                      <Text style={[styles.chartMetricType, { color: metric.color }]}>
+                        {metric.label} ({metric.unit})
+                      </Text>
+                    </View>
+                    <Text style={styles.chartLiveValue}>
+                      {key === 'activePower' && hoveredPower !== null
+                        ? `${Math.round(hoveredPower)} W`
+                        : `${displayVal} ${metric.unit}`}
+                    </Text>
+                  </View>
 
-            {/* Interactive SVG path */}
-            <View
-              style={styles.svgWrapper}
-              onStartShouldSetResponder={() => true}
-              onMoveShouldSetResponder={() => true}
-              onResponderGrant={handleChartTouch}
-              onResponderMove={handleChartTouch}
-              onResponderRelease={handleTouchEnd}
-              onResponderTerminate={handleTouchEnd}
-            >
-              <Svg style={styles.svg} viewBox="0 0 100 40" preserveAspectRatio="none">
-                <Defs>
-                  <SvgLinearGradient id="grad-amber" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0%" stopColor="#ffb95f" stopOpacity="0.25" />
-                    <Stop offset="100%" stopColor="#ffb95f" stopOpacity="0" />
-                  </SvgLinearGradient>
-                </Defs>
-                {powerPath.fill ? (
-                  <Path d={powerPath.fill} fill="url(#grad-amber)" />
-                ) : null}
-                {powerPath.line ? (
-                  <Path d={powerPath.line} fill="none" stroke="#ffb95f" strokeWidth="0.75" />
-                ) : null}
-                {hairlineX !== null && (
-                  <Line
-                    x1={hairlineX}
-                    x2={hairlineX}
-                    y1={0}
-                    y2={40}
-                    stroke="#ffffff"
-                    strokeWidth="0.5"
-                    strokeDasharray="1 1"
-                  />
-                )}
-              </Svg>
-              <View style={styles.chartTimeline}>
-                <Text style={styles.timelineText}>00:00</Text>
-                <Text style={styles.timelineText}>06:00</Text>
-                <Text style={styles.timelineText}>12:00</Text>
-                <Text style={styles.timelineText}>18:00</Text>
-                <Text style={styles.timelineText}>24:00</Text>
-              </View>
-            </View>
-
-          </View>
-
-          {/* Grid Stability (Voltage) Chart */}
-          <View style={styles.chartCard}>
-            <View style={styles.chartHeader}>
-              <View>
-                <Text style={styles.chartLabel}>Grid Stability</Text>
-                <Text style={[styles.chartMetricType, { color: Colors.coolSpectrum }]}>Voltage (V)</Text>
-              </View>
-              <Text style={styles.chartLiveValue}>{voltage?.toFixed(1)} V</Text>
-            </View>
-
-            <View style={styles.svgWrapper}>
-              <Svg style={styles.svg} viewBox="0 0 100 40" preserveAspectRatio="none">
-                <Defs>
-                  <SvgLinearGradient id="grad-blue" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0%" stopColor="#60a5fa" stopOpacity="0.25" />
-                    <Stop offset="100%" stopColor="#60a5fa" stopOpacity="0" />
-                  </SvgLinearGradient>
-                </Defs>
-                {voltagePath.fill ? (
-                  <Path d={voltagePath.fill} fill="url(#grad-blue)" />
-                ) : null}
-                {voltagePath.line ? (
-                  <Path d={voltagePath.line} fill="none" stroke="#60a5fa" strokeWidth="0.75" />
-                ) : null}
-              </Svg>
-              <View style={styles.voltageAxes}>
-                <Text style={styles.timelineText}>240V</Text>
-                <Text style={[styles.timelineText, { marginTop: 32 }]}>230V</Text>
-                <Text style={[styles.timelineText, { marginTop: 32 }]}>220V</Text>
-              </View>
-            </View>
-
-          </View>
-
-          {/* Cumulative Energy Chart */}
-          <View style={styles.chartCard}>
-            <View style={styles.chartHeader}>
-              <View>
-                <Text style={styles.chartLabel}>Energy Log</Text>
-                <Text style={[styles.chartMetricType, { color: Colors.secondary }]}>Cumulative Wh</Text>
-              </View>
-              <Text style={styles.chartLiveValue}>{Math.round((totalEnergy ?? 0) * 1000)} Wh</Text>
-            </View>
-
-            <View style={styles.svgWrapper}>
-              <Svg style={styles.svg} viewBox="0 0 100 40" preserveAspectRatio="none">
-                <Defs>
-                  <SvgLinearGradient id="grad-green" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0%" stopColor="#4ae176" stopOpacity="0.25" />
-                    <Stop offset="100%" stopColor="#4ae176" stopOpacity="0" />
-                  </SvgLinearGradient>
-                </Defs>
-                {energyPath.fill ? (
-                  <Path d={energyPath.fill} fill="url(#grad-green)" />
-                ) : null}
-                {energyPath.line ? (
-                  <Path d={energyPath.line} fill="none" stroke="#4ae176" strokeWidth="0.75" />
-                ) : null}
-              </Svg>
-            </View>
-
-          </View>
-
-          {/* Load Monitoring (Current) Chart */}
-          <View style={styles.chartCard}>
-            <View style={styles.chartHeader}>
-              <View>
-                <Text style={styles.chartLabel}>Load Monitoring</Text>
-                <Text style={[styles.chartMetricType, { color: Colors.primary }]}>Current (A)</Text>
-              </View>
-              <Text style={styles.chartLiveValue}>{current?.toFixed(3)} A</Text>
-            </View>
-
-            <View style={styles.svgWrapper}>
-              <Svg style={styles.svg} viewBox="0 0 100 40" preserveAspectRatio="none">
-                <Defs>
-                  <SvgLinearGradient id="grad-lightblue" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0%" stopColor="#adc6ff" stopOpacity="0.25" />
-                    <Stop offset="100%" stopColor="#adc6ff" stopOpacity="0" />
-                  </SvgLinearGradient>
-                </Defs>
-                {currentPath.fill ? (
-                  <Path d={currentPath.fill} fill="url(#grad-lightblue)" />
-                ) : null}
-                {currentPath.line ? (
-                  <Path d={currentPath.line} fill="none" stroke="#adc6ff" strokeWidth="0.75" />
-                ) : null}
-              </Svg>
-            </View>
-          </View>
-        </Animated.View>
-      </ScrollView>
+                  {path?.line ? (
+                    <View
+                      style={styles.svgWrapper}
+                      {...(key === 'activePower' ? {
+                        onStartShouldSetResponder: () => true,
+                        onMoveShouldSetResponder: () => true,
+                        onResponderGrant: handleChartTouch,
+                        onResponderMove: handleChartTouch,
+                        onResponderRelease: handleTouchEnd,
+                        onResponderTerminate: handleTouchEnd,
+                      } : {})}
+                    >
+                      <Svg style={styles.svg} viewBox="0 0 100 40" preserveAspectRatio="none">
+                        <Defs>
+                          <SvgLinearGradient id={metric.gradientId} x1="0" y1="0" x2="0" y2="1">
+                            <Stop offset="0%" stopColor={metric.gradientColors[0]} stopOpacity="0.25" />
+                            <Stop offset="100%" stopColor={metric.gradientColors[1]} stopOpacity="0" />
+                          </SvgLinearGradient>
+                        </Defs>
+                        <Path d={path.fill} fill={`url(#${metric.gradientId})`} />
+                        <Path d={path.line} fill="none" stroke={metric.strokeColor} strokeWidth="0.75" />
+                        {key === 'activePower' && hairlineX !== null && (
+                          <Line
+                            x1={hairlineX} x2={hairlineX} y1={0} y2={40}
+                            stroke="#ffffff" strokeWidth="0.5" strokeDasharray="1 1"
+                          />
+                        )}
+                      </Svg>
+                      {key === 'voltage' ? (
+                        <View style={styles.voltageAxes}>
+                          <Text style={styles.timelineText}>240V</Text>
+                          <Text style={[styles.timelineText, { marginTop: 32 }]}>230V</Text>
+                          <Text style={[styles.timelineText, { marginTop: 32 }]}>220V</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.chartTimeline}>
+                          <Text style={styles.timelineText}>00:00</Text>
+                          <Text style={styles.timelineText}>06:00</Text>
+                          <Text style={styles.timelineText}>12:00</Text>
+                          <Text style={styles.timelineText}>18:00</Text>
+                          <Text style={styles.timelineText}>24:00</Text>
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={styles.noDataWrapper}>
+                      <MaterialSymbols name="chart-line" size={28} color={Colors.onSurfaceVariant} style={{ opacity: 0.4 }} />
+                      <Text style={styles.noDataText}>No history yet</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </Animated.View>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -734,30 +660,36 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
   },
 
-  // Chart Footer
-  chartFooter: {
-    padding: 16,
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  statColumn: {
-    flex: 1,
+  // No-data placeholder inside chart cards
+  noDataWrapper: {
+    height: 100,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#161616',
   },
-  statDivider: {
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  statLabel: {
+  noDataText: {
     ...Typography.labelSm,
     color: Colors.onSurfaceVariant,
-    textTransform: 'uppercase',
   },
-  statVal: {
-    ...Typography.dataNumeric,
-    fontSize: 14,
-    marginTop: 4,
+
+  // Unsupported device full-screen state
+  unsupportedRoot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    gap: 16,
+  },
+  unsupportedTitle: {
+    ...Typography.headlineMd,
+    color: Colors.onSurface,
+    textAlign: 'center',
+  },
+  unsupportedBody: {
+    ...Typography.bodyMd,
+    color: Colors.onSurfaceVariant,
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });
